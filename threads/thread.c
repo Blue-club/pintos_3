@@ -221,7 +221,9 @@ thread_print_stats (void) {
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3.
-   
+   */
+  /*
+  커널(스레드) 생성 후 run queue(레디리스트) 추가
    주어진 초기 우선순위(PRIORITY)로 FUNCTION을 실행하고 인자로 AUX를 전달하는 NAME이라는 새로운 커널 스레드를 생성하고 준비 큐(ready queue)에 추가합니다.
    새로운 스레드의 스레드 식별자(TID)를 반환하며, 생성에 실패한 경우 TID_ERROR를 반환합니다.
    만약 thread_start()가 호출되었다면, 새로운 스레드는 thread_create()가 반환되기 전에 스케줄될 수 있습니다. 심지어 thread_create()가 반환되기 전에 종료될 수도 있습니다.

@@ -44,19 +44,27 @@ process_init (void) {
   종료될 수도 있습니다. initd의 스레드 ID를 반환하거나
   스레드를 생성할 수 없는 경우 TID_ERROR를 반환합니다.
   한 번만 호출되어야 함에 유의하세요. */
+
+/*프로그램 이름 파싱*/
 tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
 
 	/* Make a copy of FILE_NAME.
-	 Otherwise there's a race between the caller and load().
+	 Otherwise there's a race between the caller and 
+	 .
 	 FILE_NAME의 사본을 만듭니다.
 	 그렇지 않으면 호출자와 load() 사이에 경합이 발생합니다 */
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+
+	//! 2.1 Argument passing
+	char *save_ptr;
+	strtok_r(file_name," ",&save_ptr);
+
 
 	/* Create a new thread to execute FILE_NAME.
 	FILE_NAME을 실행하기 위해 새로운 스레드를 생성합니다. */
@@ -95,7 +103,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
- * pml4_for_each. This is only for the project 2. 
+ pml4_for_each. This is only for the project 2. 
  이 함수를 pml4_for_each에 전달하여 부모의 주소 공간을 복제합니다.
  이는 프로젝트 2 의 일부로만 사용되는 것입니다.*/
 static bool
@@ -128,7 +136,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 		결과에 따라 설정하세요). */ 
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission.
+	 permission.
 	 새 페이지를 주소 VA에 WRITABLE 권한으로 자식의 페이지 테이블에 추가합니다. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. 
@@ -195,10 +203,11 @@ error:
 	thread_exit ();
 }
 
-/* Switch the current execution context to the f_name.
- Returns -1 on fail. 
- 현재 실행 컨텍스트를 f_name으로 전환합니다.
- 실패 시 -1을 반환합니다*/
+/** Switch the current execution context to the f_name.
+ *Returns -1 on fail. 
+ *현재 실행 컨텍스트를 f_name으로 전환합니다.
+ *실패 시 -1을 반환합니다
+ *@param f_name 실행하려는 이진 파일의 이름*/
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
@@ -217,9 +226,27 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context  먼저 현재 컨텍스트를 종료합니다.*/
 	process_cleanup ();
+	//! 2.1 argument passing
+	char *parse[64];											//파싱할 인자를 담을 배열, 64로 지정
+	char *token, *save_ptr;												
+	int count=0;
+	//strtok_r을 통해 파싱 결과를 count, parse에 담는다
+	for (token = strtok_r(file_name, " ",&save_ptr);			
+		token != NULL; token =strtok_r(NULL, " ", &save_ptr))
+		parse[count++] = token;
 
-	/* And then load the binary 그런 다음 이진 파일을 로드합니다.*/
-	success = load (file_name, &_if);
+
+	/* And then load the binary 그런 다음 이진 파일을 디스크에서 메모리로 로드합니다.*/
+	success = load (file_name, &_if); 
+
+	//! 2.1 argument passing
+	argument_stack(parse, count, &_if.rsp); //parse, count를 argumentstack 함수로 전달
+	_if.R.rdi = count;
+	_if.R.rsi =(char *)_if.rsp +8;
+
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp,true); //userstack을 16진수로 프린트
+
+
 
 	/* If load failed, quit. 로드에 실패한 경우 종료합니다.*/
 	palloc_free_page (file_name);
@@ -230,6 +257,49 @@ process_exec (void *f_name) {
 	do_iret (&_if);
 	NOT_REACHED ();
 }
+
+/**
+ * ! 2.1 argument passing
+*/
+void argument_stack(char **parse, int count, void **rsp)		//전달받은 주소이므로 이중 포인터
+{
+	//프로그램 이름, 인자 문자열 push
+	for (int i = count - 1 ; i > -1 ; i--)
+	{
+		for (int j = strlen(parse[i]);j>-1;j--)
+		{
+			(*rsp)--;									//스택 주소 감소
+			**(char **)rsp =parse[i][j];				//주소에 문자 저장
+		}
+		parse[i]=*(char**)rsp;		//parse[i]에 현재 rsp 의 값 저장해둠(지금 저장한 인자가 시작하는 주소값)
+	}
+
+	//정렬 패딩 push
+	int padding = (int)*rsp % 8;
+	for (int i = 0; i < padding; i++)
+	{
+		(*rsp)--;
+		**(uint8_t **)rsp = 0;		//rsp 직전까지 값 채움
+	}
+
+	//인자 문자열 종료를 나타내는 0 push
+	(*rsp) -= 8;				//다음 주소로 이동
+	**(char ***)rsp = 0;		//char* 타입의 주소 추가
+
+	//각 인자 문자열의 주소 push
+	for (int i = count -1; i>-1;i--)
+	{
+		(*rsp) -= 8;		//다음 주소로 이동
+		**(char ***)rsp = parse[i]; 	 //char* 타입의 주소 추가
+	}
+
+	//return address push
+	*(rsp) -= 8;
+	**(void***)rsp = 0;		//void 타입의 0 추가
+}
+
+
+
 
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -254,6 +324,10 @@ process_wait (tid_t child_tid UNUSED) {
 	  XXX:       implementing the process_wait. 
 	  XXX: 힌트) pintos는 process_wait(initd)를 호출하면 종료합니다.
 	  XXX:       process_wait를 구현하기 전에 무한 루프를 여기에 추가하는 것이 좋습니다.*/
+	for (int i = 0; i < 100000000; i++)
+	{
+	}
+  return -1;
 	return -1;
 }
 
@@ -410,7 +484,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. 실행 파일 열기  */
 	file = filesys_open (file_name);
-	if (file == NULL) {
+	if (file == NULL) {										
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
@@ -430,7 +504,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Read program headers.프로그램 헤더 읽기 */
 	file_ofs = ehdr.e_phoff;
 	for (i = 0; i < ehdr.e_phnum; i++) {
-		struct Phdr phdr;
+		struct Phdr phdr;	//프로그램 헤더
 
 		if (file_ofs < 0 || file_ofs > file_length (file))
 			goto done;
@@ -470,7 +544,7 @@ load (const char *file_name, struct intr_frame *if_) {
 								- read_bytes);
 					} else {
 						/* Entirely zero.
-						 * Don't read anything from disk. 
+						 Don't read anything from disk. 
 						 전부 0으로 채워짐.
 					     디스크에서 아무것도 읽지 않습니다.*/
 						read_bytes = 0;
@@ -592,8 +666,9 @@ Return true if successful, false if a memory allocation error
 or disk read error occurs. 
 
 OFS에서 시작하는 FILE의 오프셋에 있는 세그먼트를 UPAGE 주소에서 로드합니다.
+*/
 
-총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
+/*총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
 UPAGE에서 시작하는 READ_BYTES 바이트는 OFS 오프셋에서 시작하는 FILE에서 읽어야 합니다.
 UPAGE + READ_BYTES에서 시작하는 ZERO_BYTES 바이트는 0으로 설정되어야 합니다.
 이 함수에 의해 초기화된 페이지는 WRITABLE이 true이면 사용자 프로세스가 쓸 수 있어야 하고,
