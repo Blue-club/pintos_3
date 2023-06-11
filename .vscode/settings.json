@@ -4,6 +4,11 @@
     "stdio.h": "c",
     "thread.h": "c",
     "*.inc": "c",
-    "main.h": "c"
+    "main.h": "c",
+    "list.h": "c",
+    "debug.h": "c",
+    "palloc.h": "c",
+    "malloc.h": "c",
+    "stdlib.h": "c"
   }
 }

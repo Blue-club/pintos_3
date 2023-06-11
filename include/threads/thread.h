@@ -11,6 +11,17 @@
 
 /* Project 2 */
 #include "threads/synch.h"
+#include "filesys/file.h"
+
+#define STDIN_FILENO 0 
+#define STDOUT_FILENO 1 
+
+struct 
+file_descriptor {
+	struct list_elem elem;
+	struct file * file;
+	int fd;
+};
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -110,6 +121,8 @@ struct thread {
 	int exit_status;
 	//struct file * fdt[128];
 	struct file ** fdt;
+
+	struct list fdt_list;
 	int fd;
 
 	struct intr_frame userland_if; 

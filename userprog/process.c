@@ -3,7 +3,7 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
-#include <stdlib.h>
+// #include <stdlib.h>
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
@@ -24,6 +24,7 @@
 
 /* Project 2 */
 #include "threads/synch.h"
+#include "threads/malloc.h"
 
 
 static void process_cleanup (void);
@@ -183,15 +184,27 @@ static void
 	// 			current->fdt[i] = file_duplicate(parent->fdt[i]);
 	// }
 
-	 for (int i = 0; i < 128; i++)
-    {
-        struct file *file = parent->fdt[i];
-        if (file == NULL)
-            continue;
-        if (file > 2)
-            file = file_duplicate(file);
-        current->fdt[i] = file;
-    }
+	//  for (int i = 0; i < 128; i++)
+  //   {
+  //       struct file *file = parent->fdt[i];
+  //       if (file == NULL)
+  //           continue;
+  //       if (file > 2)
+  //           file = file_duplicate(file);
+  //       current->fdt[i] = file;
+  //   }
+
+	
+	struct list_elem * elem;
+	for(elem = list_begin(&parent->fdt_list); elem != list_end(&parent->fdt_list); elem = list_next(elem)){
+		struct file_descriptor * temp = malloc(sizeof(struct file_descriptor));
+		struct file_descriptor * p_fd = list_entry(elem, struct file_descriptor, elem);
+		
+		temp->fd = p_fd->fd;
+		temp->file = file_duplicate(p_fd->file);
+
+		list_push_back(&current->fdt_list, &temp->elem);
+	}
 
 	
 	process_init ();
@@ -283,19 +296,31 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+	// printf("hi\n");
 
- 	for (int i = 2; i < 128; i++)
-        close(i);
+ 	// for (int i = 2; i < 128; i++)
+  //       close(i);
 	// palloc_free_page(curr->fdt);
-	palloc_free_multiple(curr->fdt, 3);
+	// palloc_free_multiple(curr->fdt, 3);
+
+	// struct list_elem * elem = list_begin
 	
+
+	struct list_elem * elem = list_begin(&curr->fdt_list);
+	while(elem !=list_end(&curr->fdt_list)){
+	 	struct file *fileobj = list_entry(elem, struct file_descriptor, elem)->file;
+		file_close(fileobj);
+		struct file_descriptor * temp = list_entry(elem, struct file_descriptor, elem);
+		free(temp);
+		elem = list_next(elem);
+	}
+
+
 	file_close(curr->exec_file);
 
 	process_cleanup ();
 
-
 	sema_up(&curr->wait);
-
 	sema_down(&curr->exit);
 }
 
